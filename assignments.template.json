@@ -1,0 +1,18 @@
+{
+  "judges": [
+    {
+      "id": "firebase-auth-uid-1",
+      "name": "Judge One",
+      "email": "judge1@example.com",
+      "track": "AI/ML",
+      "assignedProjects": ["proj1", "proj2", "proj3"]
+    },
+    {
+      "id": "firebase-auth-uid-2",
+      "name": "Judge Two",
+      "email": "judge2@example.com",
+      "track": "Data Analytics",
+      "assignedProjects": ["proj2", "proj4"]
+    }
+  ]
+}

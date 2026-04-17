@@ -53,7 +53,7 @@ const projects = [
 // 🔥 SAMPLE JUDGES
 const judges = [
   {
-    id: "gp5eeUr2zbUMLP0X1lrhcDHxyIG3",
+    id: "judge1",
     name: "Ansh",
     email: "abhatnagar@ucsd.edu",
     track: "AI/ML",

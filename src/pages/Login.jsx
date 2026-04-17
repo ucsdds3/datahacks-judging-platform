@@ -1,5 +1,12 @@
+import { useEffect, useState } from "react";
 import { auth } from "../firebase";
-import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import {
+  browserLocalPersistence,
+  onAuthStateChanged,
+  setPersistence,
+  signInWithEmailAndPassword
+} from "firebase/auth";
+import { useNavigate } from "react-router-dom";
 
 const styles = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap');
@@ -196,28 +203,43 @@ const styles = `
     margin-top: 2px;
   }
 
-  /* Divider */
-  .login-divider {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin-bottom: 24px;
+  /* Form elements */
+  .login-form-group {
+    margin-bottom: 16px;
   }
 
-  .login-divider-line {
-    flex: 1;
-    height: 1px;
-    background: #E0DBD2;
-  }
-
-  .login-divider-text {
-    font-size: 12px;
-    color: #b0a89a;
+  .login-label {
+    display: block;
+    font-size: 13px;
     font-weight: 500;
-    white-space: nowrap;
+    color: #5a534a;
+    margin-bottom: 6px;
+    letter-spacing: -0.01em;
   }
 
-  /* Google button */
+  .login-input {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #E8E4DC;
+    border-radius: 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    color: #1a1a1a;
+    background: #FFFFFF;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .login-input:focus {
+    outline: none;
+    border-color: #C9A96E;
+    box-shadow: 0 0 0 3px rgba(201, 169, 110, 0.1);
+  }
+
+  .login-input::placeholder {
+    color: #c9c1b5;
+  }
+
+  /* Button */
   .login-btn {
     width: 100%;
     display: flex;
@@ -228,7 +250,7 @@ const styles = `
     background: #1a1a1a;
     color: #fff;
     border: none;
-    border-radius: 10px;
+    border-radius: 8px;
     font-family: 'DM Sans', sans-serif;
     font-size: 15px;
     font-weight: 500;
@@ -238,13 +260,13 @@ const styles = `
     letter-spacing: -0.01em;
   }
 
-  .login-btn:hover {
+  .login-btn:hover:not(:disabled) {
     background: #2d2d2d;
     transform: translateY(-1px);
     box-shadow: 0 6px 20px rgba(0,0,0,0.18);
   }
 
-  .login-btn:active {
+  .login-btn:active:not(:disabled) {
     transform: translateY(0);
     box-shadow: 0 2px 6px rgba(0,0,0,0.12);
   }
@@ -274,6 +296,7 @@ const styles = `
     border-radius: 8px;
     font-size: 13px;
     color: #B91C1C;
+    line-height: 1.5;
   }
 
   .login-hint {
@@ -282,6 +305,28 @@ const styles = `
     color: #b0a89a;
     text-align: center;
     line-height: 1.6;
+  }
+
+  .login-toggle {
+    margin-top: 24px;
+    text-align: center;
+    font-size: 13px;
+    color: #8a7f6e;
+  }
+
+  .login-toggle button {
+    background: none;
+    border: none;
+    color: #C9A96E;
+    cursor: pointer;
+    font-weight: 500;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .login-toggle button:hover {
+    color: #a88b4e;
+    text-decoration: underline;
   }
 
   /* Info badges */
@@ -321,30 +366,86 @@ const styles = `
       border-right: none;
       border-bottom: 1px solid #E8E4DC;
     }
-    .login-right { padding: 40px 32px; }
+    .login-right { 
+      padding: 40px 32px;
+      justify-content: flex-start;
+      padding-top: 60px;
+    }
     .login-footer-note { display: none; }
+    .login-stats { margin-bottom: 32px; }
   }
 `;
 
 export default function Login() {
-  const [loading, setLoading] = window.React
-    ? window.React.useState(false)
-    : [false, () => {}];
-  const [error, setError] = window.React
-    ? window.React.useState("")
-    : ["", () => {}];
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleLogin = async () => {
+  useEffect(() => {
+    let isMounted = true;
+    let unsubscribe = null;
+
+    const initAuth = async () => {
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+      } catch (err) {
+        console.error("Persistence error:", err);
+      }
+
+      unsubscribe = onAuthStateChanged(auth, (user) => {
+        if (isMounted && user) {
+          navigate("/dashboard", { replace: true });
+        }
+      });
+    };
+
+    initAuth();
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [navigate]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     setLoading(true);
     setError("");
+
+    if (!email || !password) {
+      setError("Please fill in all fields.");
+      setLoading(false);
+      return;
+    }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      setLoading(false);
+      return;
+    }
+
     try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      console.log("USER:", result.user);
-      window.location.href = "/dashboard";
+      await signInWithEmailAndPassword(auth, email, password);
+      navigate("/dashboard", { replace: true });
     } catch (err) {
-      console.error("LOGIN ERROR:", err);
-      setError("Sign-in failed. Please try again or contact the organizer.");
+      console.error("Auth error:", err);
+      let message = "Sign-in failed. Please try again.";
+
+      if (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential") {
+        message = "No judge account was found for that email/password combination.";
+      } else if (err.code === "auth/wrong-password") {
+        message = "Incorrect password. Please try again.";
+      } else if (err.code === "auth/invalid-email") {
+        message = "Invalid email address.";
+      } else if (err.code === "auth/too-many-requests") {
+        message = "Too many attempts. Please wait a moment and try again.";
+      }
+
+      setError(message);
       setLoading(false);
     }
   };
@@ -381,14 +482,14 @@ export default function Login() {
             </p>
           </div>
 
-          <p className="login-footer-note">Access restricted to registered judges only.</p>
+          <p className="login-footer-note">Secure, email-based authentication.</p>
         </div>
 
         {/* ── Right Panel ── */}
         <div className="login-right">
           <div className="login-card">
             <h2 className="login-card-title">Welcome back</h2>
-            <p className="login-card-sub">Sign in to access your judging dashboard.</p>
+            <p className="login-card-sub">Sign in with your judge email and password.</p>
 
             <div className="login-stats">
               <div className="login-stat">
@@ -411,34 +512,52 @@ export default function Login() {
               <span className="login-badge"><span className="login-badge-dot"></span>Collaborative notes</span>
             </div>
 
-            <div className="login-divider">
-              <div className="login-divider-line"></div>
-              <span className="login-divider-text">Judge access only</span>
-              <div className="login-divider-line"></div>
-            </div>
+            <form onSubmit={handleSubmit}>
+              <div className="login-form-group">
+                <label className="login-label">Email</label>
+                <input
+                  type="email"
+                  className="login-input"
+                  placeholder="your@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={loading}
+                />
+              </div>
 
-            <button
-              className="login-btn"
-              onClick={handleLogin}
-              disabled={loading}
-            >
-              {loading ? (
-                <span className="login-btn-spinner"></span>
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
-                  <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
-                  <path d="M3.964 10.707A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/>
-                  <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/>
-                </svg>
-              )}
-              {loading ? "Signing in…" : "Continue with Google"}
-            </button>
+              <div className="login-form-group">
+                <label className="login-label">Password</label>
+                <input
+                  type="password"
+                  className="login-input"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={loading}
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="login-btn"
+                disabled={loading}
+              >
+                {loading ? (
+                  <>
+                    <span className="login-btn-spinner"></span>
+                    Signing in…
+                  </>
+                ) : (
+                  "Sign In"
+                )}
+              </button>
+            </form>
 
             {error && <div className="login-error">{error}</div>}
 
             <p className="login-hint">
-              Only pre-registered judge emails can access this portal.<br />
+              Use the email/password provided for judge access.
+              <br />
               Contact your event organizer if you have trouble signing in.
             </p>
           </div>

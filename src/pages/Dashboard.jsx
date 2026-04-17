@@ -529,36 +529,58 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
   const [judge, setJudge] = useState(null);
+  const [accessError, setAccessError] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
     const load = async () => {
-      const user = auth.currentUser;
+      try {
+        const user = auth.currentUser;
+        if (!user) {
+          navigate("/", { replace: true });
+          return;
+        }
 
-      const judgeDoc = await getDoc(doc(db, "judges", user.uid));
-      const judgeData = judgeDoc.data();
-      setJudge(judgeData);
-      const projectIds = judgeData.assignedProjects;
+        const judgeDoc = await getDoc(doc(db, "judges", user.uid));
+        const judgeData = judgeDoc.data();
 
-      const projectDocs = await Promise.all(
-        projectIds.map((id) => getDoc(doc(db, "projects", id)))
-      );
+        if (!judgeData) {
+          setAccessError("Your account is signed in, but it is not linked to a judge profile yet.");
+          setLoading(false);
+          return;
+        }
 
-      setProjects(
-        projectDocs.map((d) => ({ id: d.id, ...d.data() }))
-      );
+        setJudge(judgeData);
+        const projectIds = Array.isArray(judgeData.assignedProjects)
+          ? judgeData.assignedProjects
+          : [];
 
-      const q = query(
-        collection(db, "evaluations"),
-        where("judgeId", "==", user.uid)
-      );
-      const snap = await getDocs(q);
-      setCompleted(snap.docs.map((d) => d.data().projectId));
-      setLoading(false);
+        const projectDocs = await Promise.all(
+          projectIds.map((id) => getDoc(doc(db, "projects", id)))
+        );
+
+        setProjects(
+          projectDocs
+            .filter((d) => d.exists())
+            .map((d) => ({ id: d.id, ...d.data() }))
+        );
+
+        const q = query(
+          collection(db, "evaluations"),
+          where("judgeId", "==", user.uid)
+        );
+        const snap = await getDocs(q);
+        setCompleted(snap.docs.map((d) => d.data().projectId));
+      } catch (err) {
+        console.error("Dashboard load error:", err);
+        setAccessError("We couldn't load your judge assignments right now.");
+      } finally {
+        setLoading(false);
+      }
     };
 
     load();
-  }, []);
+  }, [navigate]);
 
   const pct = projects.length > 0
     ? Math.round((completed.length / projects.length) * 100)
@@ -597,6 +619,45 @@ export default function Dashboard() {
           <div className="db-loading-inner">
             <div className="db-loading-ring" />
             Loading your assignments…
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (accessError) {
+    return (
+      <>
+        <style>{styles}</style>
+        <div className="db-root">
+          <div className="db-topbar">
+            <div className="db-topbar-left">
+              <div className="db-topbar-icon">
+                <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="2" y="2" width="7" height="7" rx="1.5" fill="white"/>
+                  <rect x="11" y="2" width="7" height="7" rx="1.5" fill="white" fillOpacity="0.5"/>
+                  <rect x="2" y="11" width="7" height="7" rx="1.5" fill="white" fillOpacity="0.5"/>
+                  <rect x="11" y="11" width="7" height="7" rx="1.5" fill="white" fillOpacity="0.75"/>
+                </svg>
+              </div>
+              <span className="db-topbar-wordmark">DataHacks Judging</span>
+            </div>
+            <div className="db-topbar-right">
+              <button
+                className="db-sign-out-btn"
+                onClick={() => auth.signOut().then(() => navigate("/"))}
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+
+          <div className="db-body">
+            <div className="db-empty">
+              {accessError}
+              <br />
+              Contact your event organizer to assign this login to a judge record.
+            </div>
           </div>
         </div>
       </>
