@@ -542,11 +542,13 @@ export default function Dashboard() {
         }
 
         let judgeData = null;
+        let judgeDocId = null;
 
         // Primary lookup: by Firebase Auth UID
         const judgeDocByUid = await getDoc(doc(db, "judges", user.uid));
         if (judgeDocByUid.exists()) {
           judgeData = judgeDocByUid.data();
+          judgeDocId = user.uid;
         } else {
           // Fallback: judge doc was created by assign.js using email slug as ID
           const emailQuery = query(collection(db, "judges"), where("email", "==", user.email));
