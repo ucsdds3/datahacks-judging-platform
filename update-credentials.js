@@ -36,7 +36,7 @@ const judges = raw.slice(1).map(line => {
 console.log(`Creating ${judges.length} judge accounts...`);
 let created = 0, failed = 0;
 for (const j of judges) {
-  const email = `${j.username}@datahacks2026.ucsd`;
+  const email = `${j.username.toLowerCase()}@datahacks2026.ucsd`;
   try {
     await auth.createUser({ email, password: `DH${j.pin}`, displayName: j.name });
     created++;

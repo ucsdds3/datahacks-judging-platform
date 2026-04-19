@@ -58,7 +58,7 @@ const projects = projectRows.map(r => ({
 const judges = judgeRows.map(r => ({
   id: r["Username"],
   name: r["Name"],
-  email: `${r["Username"]}@datahacks2026.ucsd`,
+  email: `${r["Username"].toLowerCase()}@datahacks2026.ucsd`,
   track: r["Track"],
   assignedProjects: [],
 }));

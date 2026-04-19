@@ -93,6 +93,17 @@
       }
     },
     {
+      "name": "Entrepreneurship & Product",
+      "total_points": 50,
+      "categories": [
+        { "name": "Clear Problem and Target User", "points": 10 },
+        { "name": "Compelling Solution and Value Proposition", "points": 10 },
+        { "name": "Market Assessment and Opportunity", "points": 10 },
+        { "name": "MVP Quality and Product Feasibility", "points": 10 },
+        { "name": "Presentation, Storytelling, and Theme Alignment", "points": 10 }
+      ]
+    },
+    {
       "name": "Mechanical Design & Biotechnology",
       "total_points": 50,
       "categories": [

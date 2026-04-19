@@ -424,7 +424,7 @@ export default function Login() {
     }
 
     try {
-      const email = `${username.trim()}@datahacks2026.ucsd`;
+      const email = `${username.trim().toLowerCase()}@datahacks2026.ucsd`;
       const cred = await signInWithEmailAndPassword(auth, email, `DH${password}`);
       const dest = cred.user.email === "ds3@ucsd.edu" ? "/leaderboard" : "/dashboard";
       navigate(dest, { replace: true });
