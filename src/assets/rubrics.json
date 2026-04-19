@@ -1,0 +1,134 @@
+{
+  "tracks": [
+    {
+      "name": "UI/UX",
+      "total_points": 50,
+      "categories": [
+        { "name": "Intuitive UX and Clear User Flow", "points": 10 },
+        { "name": "Visual Design Quality and Interface Polish", "points": 10 },
+        { "name": "Interactive Functionality and Responsiveness", "points": 10 },
+        { "name": "Creative Interaction Design and Innovation", "points": 10 },
+        { "name": "Theme Alignment and Presentation Clarity", "points": 10 }
+      ]
+    },
+    {
+      "name": "Cloud",
+      "total_points": 50,
+      "categories": [
+        { "name": "Clear Cloud Architecture and Service Justification", "points": 10 },
+        { "name": "Effective Use of Managed Services", "points": 10 },
+        { "name": "Data Pipeline Depth and Dataset Integration", "points": 10 },
+        { "name": "Innovation in Cloud Design and Impact", "points": 10 },
+        { "name": "Demo Functionality and System Reliability", "points": 10 }
+      ]
+    },
+    {
+      "name": "Hardware & IoT",
+      "total_points": 50,
+      "categories": [
+        { "name": "Engineering Rigor and Build Quality", "points": 10 },
+        { "name": "Reliability and Real-World Deployability", "points": 10 },
+        { "name": "System Integration and Functional Completeness", "points": 10 },
+        { "name": "Innovation in Sensing, Actuation, and Edge-ML", "points": 10 },
+        { "name": "Problem Framing and Presentation Clarity", "points": 10 }
+      ]
+    },
+    {
+      "name": "Machine Learning / AI",
+      "total_points": 50,
+      "categories": [
+        { "name": "Technical Rigor and Model Validation", "points": 10 },
+        { "name": "Data Mastery and Preprocessing", "points": 10 },
+        { "name": "Demo Quality", "points": 10 },
+        { "name": "Innovation and Non-Conventional Approach", "points": 10 },
+        { "name": "Problem Framing, Visuals, and Real-World Impact", "points": 10 }
+      ]
+    },
+    {
+      "name": "Data Analytics",
+      "total_points": 50,
+      "categories": [
+        { "name": "Effective Dataset Use and Data Processing", "points": 10 },
+        { "name": "Data Visualization Choice, Technical Depth, and Evaluation", "points": 10 },
+        { "name": "Innovation and Real-World Impact", "points": 10 },
+        { "name": "Clear, Focused Analytics Question, Valid Solution and Results", "points": 10 },
+        { "name": "Demo Clarity and Visual Communication", "points": 10 }
+      ]
+    },
+    {
+      "name": "Economics",
+      "total_points": 150,
+      "judge_scored_points": 50,
+      "performance_scored_points": 100,
+      "categories": [
+        {
+          "name": "Model Validation",
+          "points": 10,
+          "description": "How generalizable is it."
+        },
+        {
+          "name": "Alpha Generation",
+          "points": 10,
+          "description": "Creativity. Simple linear regression scores high; weird, complex, completely vibe-coded LSTM scores low."
+        },
+        {
+          "name": "Asset Integration",
+          "points": 10,
+          "description": "How well did they combine all 3 or 2 assets."
+        },
+        {
+          "name": "Dashboard and Graphs: Usability",
+          "points": 10,
+          "description": "Does the dashboard actually make sense?"
+        },
+        {
+          "name": "Dashboard and Graphs: Quality",
+          "points": 10,
+          "description": "How much do you like the presentation? Are they reading off a script? Does it look like they know what they are talking about?"
+        }
+      ],
+      "performance_scoring": {
+        "points": 100,
+        "description": "50 points based on PnL, tiebreaker is Sharpe Ratio. Judges have no influence over this portion."
+      }
+    },
+    {
+      "name": "Mechanical Design & Biotechnology",
+      "total_points": 50,
+      "categories": [
+        {
+          "name": "Problem Clarity and Significance",
+          "points": 10,
+          "description": "Problem is well-defined, weighted, and tied to affected populations."
+        },
+        {
+          "name": "Solution Creativity and Novelty",
+          "points": 10,
+          "description": "Solution goes beyond existing alternatives rather than lightly remixing them."
+        },
+        {
+          "name": "Project Feasibility and Implementation",
+          "points": 10,
+          "description": "Realistically buildable with reasonable resources, not pure proof of concept."
+        },
+        {
+          "name": "Pitch Quality and Delivery",
+          "points": 10,
+          "description": "Succinct, engaging, visuals that elevate rather than distract from the verbal."
+        },
+        {
+          "name": "Team Collaboration and Workload Balance",
+          "points": 10,
+          "description": "Contributions feel egalitarian, each teammate owns a clear role."
+        }
+      ]
+    }
+  ],
+  "scoring_guidance": {
+    "9-10": "Exceptional",
+    "7-8": "Strong, minor gaps",
+    "5-6": "Solid, lacking depth",
+    "3-4": "Partial or weak",
+    "0-2": "Minimal or absent"
+  }
+}
