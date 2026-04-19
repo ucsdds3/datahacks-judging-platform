@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "../firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { MAX_TOTAL_SCORE } from "../config/rubric";
 import { signOut } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
@@ -229,46 +229,30 @@ export default function Leaderboard() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const load = async () => {
-      // Load all three collections in parallel
-      const [projectSnap, judgeSnap, evalSnap] = await Promise.all([
-        getDocs(collection(db, "projects")),
-        getDocs(collection(db, "judges")),
-        getDocs(collection(db, "evaluations")),
-      ]);
+    let projectDocs = [];
+    let judgeDocs = [];
+    let evalDocs = [];
+    let ready = [false, false, false];
 
-      const projects = projectSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const judges = judgeSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const evals = evalSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const recompute = () => {
+      if (!ready[0] || !ready[1] || !ready[2]) return;
 
-      // Map judgeId → track(s). A judge doc stores track as string or array.
       const judgeTrackMap = {};
-      for (const j of judges) {
+      for (const j of judgeDocs) {
         const tracks = Array.isArray(j.tracks) ? j.tracks : j.track ? [j.track] : [];
         judgeTrackMap[j.id] = tracks;
       }
 
-      // For each project, sum scores per track bucket:
-      // score counts toward a track if the evaluating judge judges that track
-      // AND that track is one of the project's tracks.
       const projectMap = {};
-      for (const p of projects) {
-        projectMap[p.id] = p;
-      }
+      for (const p of projectDocs) projectMap[p.id] = p;
 
-      // trackBuckets: track → projectId → { total, count }
       const trackBuckets = {};
-
-      for (const ev of evals) {
+      for (const ev of evalDocs) {
         const { judgeId, projectId, scores } = ev;
         const project = projectMap[projectId];
         if (!project || !scores) continue;
-
         const total = Object.values(scores).reduce((s, v) => s + (v ?? 0), 0);
-        const judgeTracks = judgeTrackMap[judgeId] || [];
-
-        // Score goes only into the judge's own track bucket(s)
-        for (const track of judgeTracks) {
+        for (const track of (judgeTrackMap[judgeId] || [])) {
           if (!trackBuckets[track]) trackBuckets[track] = {};
           if (!trackBuckets[track][projectId]) trackBuckets[track][projectId] = { total: 0, count: 0 };
           trackBuckets[track][projectId].total += total;
@@ -276,15 +260,13 @@ export default function Leaderboard() {
         }
       }
 
-      // Ensure every project appears in all its tracks even with 0 evals
-      for (const p of projects) {
+      for (const p of projectDocs) {
         for (const track of (p.tracks || [])) {
           if (!trackBuckets[track]) trackBuckets[track] = {};
           if (!trackBuckets[track][p.id]) trackBuckets[track][p.id] = { total: 0, count: 0 };
         }
       }
 
-      // Build sorted track → project list
       const result = {};
       for (const [track, projBucket] of Object.entries(trackBuckets)) {
         const entries = Object.entries(projBucket).map(([pid, { total, count }]) => ({
@@ -301,13 +283,31 @@ export default function Leaderboard() {
         result[track] = entries;
       }
 
-      setTrackData(result);
-      const firstTrack = TRACK_ORDER.find((t) => result[t]);
-      setActiveTrack(firstTrack || Object.keys(result)[0] || null);
+      setTrackData((prev) => {
+        const firstTrack = TRACK_ORDER.find((t) => result[t]);
+        setActiveTrack((cur) => cur ?? firstTrack ?? Object.keys(result)[0] ?? null);
+        return result;
+      });
       setLoading(false);
     };
 
-    load();
+    const unsubProjects = onSnapshot(collection(db, "projects"), (snap) => {
+      projectDocs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      ready[0] = true;
+      recompute();
+    });
+    const unsubJudges = onSnapshot(collection(db, "judges"), (snap) => {
+      judgeDocs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      ready[1] = true;
+      recompute();
+    });
+    const unsubEvals = onSnapshot(collection(db, "evaluations"), (snap) => {
+      evalDocs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      ready[2] = true;
+      recompute();
+    });
+
+    return () => { unsubProjects(); unsubJudges(); unsubEvals(); };
   }, []);
 
   const handleSignOut = async () => {
