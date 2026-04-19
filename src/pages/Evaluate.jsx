@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { auth, db } from "../firebase";
-import { CRITERIA, DEFAULT_SCORES, MAX_TOTAL_SCORE } from "../config/rubric";
+import { getCriteriaForTrack, getDefaultScores, getMaxTotal, SCORE_GUIDE, getPerformanceNoteForTrack } from "../config/trackRubrics";
 import {
   doc,
   getDoc,
@@ -283,8 +283,8 @@ const styles = `
   /* Score buttons */
   .ev-scale {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 7px;
+    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+    gap: 6px;
   }
 
   .ev-scale-btn {
@@ -305,7 +305,7 @@ const styles = `
 
   @media (max-width: 600px) {
     .ev-scale {
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
     }
 
     .ev-scale-btn {
@@ -503,11 +503,72 @@ const styles = `
     to   { opacity: 1; transform: translateY(0); }
   }
 
-  /* stagger criteria */
-  .ev-criterion:nth-child(1) { animation-delay: 0.05s; }
-  .ev-criterion:nth-child(2) { animation-delay: 0.1s; }
-  .ev-criterion:nth-child(3) { animation-delay: 0.15s; }
-  .ev-criterion:nth-child(4) { animation-delay: 0.2s; }
+  /* ── Rubric button ── */
+  .ev-rubric-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; font-weight: 500; color: #5a534a;
+    background: #fff; border: 1px solid #E0DBD2; border-radius: 8px;
+    padding: 7px 14px; cursor: pointer; font-family: 'DM Sans', sans-serif;
+    margin-bottom: 20px; transition: background 0.15s;
+  }
+  .ev-rubric-btn:hover { background: #F0EDE7; }
+
+  /* ── Bottom sheet ── */
+  .ev-sheet-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200;
+    display: flex; align-items: flex-end;
+  }
+  @keyframes ev-sheet-up {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  .ev-sheet {
+    background: #fff; border-radius: 20px 20px 0 0;
+    width: 100%; max-height: 85vh; overflow-y: auto;
+    padding: 12px 20px 48px;
+    animation: ev-sheet-up 0.25s cubic-bezier(0.16,1,0.3,1) both;
+  }
+  .ev-sheet-handle {
+    width: 36px; height: 4px; background: #E0DBD2; border-radius: 2px;
+    margin: 0 auto 16px;
+  }
+  .ev-sheet-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid #F0EDE7;
+  }
+  .ev-sheet-title { font-size: 15px; font-weight: 600; color: #1a1a1a; }
+  .ev-sheet-close {
+    background: none; border: none; font-size: 16px; color: #8a7f6e;
+    cursor: pointer; padding: 4px 8px; border-radius: 6px;
+  }
+  .ev-sheet-close:hover { background: #F0EDE7; }
+  .ev-sheet-body { display: flex; flex-direction: column; gap: 0; }
+  .ev-sheet-criterion {
+    padding: 14px 0; border-bottom: 1px solid #F0EDE7;
+  }
+  .ev-sheet-criterion:last-child { border-bottom: none; }
+  .ev-sheet-cname {
+    font-size: 13px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px;
+  }
+  .ev-sheet-cname span { font-weight: 400; color: #8a7f6e; font-size: 11px; margin-left: 4px; }
+  .ev-sheet-chint { font-size: 12px; color: #5a534a; margin-bottom: 8px; line-height: 1.4; }
+  .ev-sheet-levels { display: flex; flex-direction: column; gap: 5px; }
+  .ev-sheet-level { display: flex; gap: 8px; align-items: flex-start; }
+  .ev-sheet-range {
+    font-size: 10px; font-weight: 700; color: #5a534a;
+    background: #F0EDE7; border-radius: 4px; padding: 2px 6px;
+    white-space: nowrap; flex-shrink: 0; margin-top: 1px;
+  }
+  .ev-sheet-desc { font-size: 12px; color: #3a3530; line-height: 1.4; }
+  .ev-sheet-guide {
+    margin-top: 20px; padding-top: 16px; border-top: 1px solid #F0EDE7;
+  }
+  .ev-sheet-guide-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #a09488; margin-bottom: 10px;
+  }
+  .ev-sheet-guide-levels { display: flex; flex-direction: column; gap: 5px; }
+  .ev-sheet-guide-label { font-size: 11px; font-weight: 600; color: #5a534a; }
 `;
 
 function ProgressRing({ filled, total }) {
@@ -539,14 +600,20 @@ export default function Evaluate() {
   const { projectId } = useParams();
 
   const [project, setProject] = useState(null);
-  const [scores, setScores] = useState(DEFAULT_SCORES);
+  const [judgeTrack, setJudgeTrack] = useState(null);
+  const [scores, setScores] = useState({});
   const [comment, setComment] = useState("");
   const [existingId, setExistingId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [rubricOpen, setRubricOpen] = useState(false);
+
+  const criteria = getCriteriaForTrack(judgeTrack);
+  const perfNote = getPerformanceNoteForTrack(judgeTrack);
+  const maxTotal = getMaxTotal(criteria);
 
   const scoredCount = Object.values(scores).filter((v) => v !== null).length;
-  const totalCount = CRITERIA.length;
+  const totalCount = criteria.length;
   const isComplete = scoredCount === totalCount;
 
   const totalScore = Object.values(scores).reduce(
@@ -557,9 +624,28 @@ export default function Evaluate() {
   useEffect(() => {
     const load = async () => {
       const user = auth.currentUser;
+
+      // Load project
       const projectDoc = await getDoc(doc(db, "projects", projectId));
       setProject(projectDoc.data());
 
+      // Load judge track (UID first, fallback to email)
+      let track = null;
+      const judgeDoc = await getDoc(doc(db, "judges", user.uid));
+      if (judgeDoc.exists()) {
+        track = judgeDoc.data().track || null;
+      } else {
+        const eq = query(collection(db, "judges"), where("email", "==", user.email));
+        const eSnap = await getDocs(eq);
+        if (!eSnap.empty) track = eSnap.docs[0].data().track || null;
+      }
+      setJudgeTrack(track);
+
+      // Seed scores from track criteria
+      const trackCriteria = getCriteriaForTrack(track);
+      setScores(getDefaultScores(trackCriteria));
+
+      // Load existing evaluation
       const q = query(
         collection(db, "evaluations"),
         where("judgeId", "==", user.uid),
@@ -664,9 +750,14 @@ export default function Evaluate() {
             </div>
           </div>
 
+          {/* Rubric button */}
+          <button className="ev-rubric-btn" onClick={() => setRubricOpen(true)}>
+            📋 View Rubric
+          </button>
+
           {/* Criteria grid */}
           <div className="ev-criteria-grid">
-            {CRITERIA.map((c) => (
+            {criteria.map((c) => (
               <div
                 key={c.id}
                 className={`ev-criterion${scores[c.id] !== null ? " scored" : ""}`}
@@ -713,7 +804,7 @@ export default function Evaluate() {
               {isComplete ? (
                 <div className="ev-score-preview">
                   <span className="ev-score-preview-value">{totalScore}</span>
-                  <span className="ev-score-preview-denom">/ {MAX_TOTAL_SCORE}</span>
+                  <span className="ev-score-preview-denom">/ {maxTotal}</span>
                   <span className="ev-score-preview-label">total score</span>
                 </div>
               ) : (
@@ -747,6 +838,47 @@ export default function Evaluate() {
             </button>
           </div>
         </div>
+
+        {/* Rubric bottom sheet */}
+        {rubricOpen && (
+          <div className="ev-sheet-backdrop" onClick={() => setRubricOpen(false)}>
+            <div className="ev-sheet" onClick={e => e.stopPropagation()}>
+              <div className="ev-sheet-handle" />
+              <div className="ev-sheet-header">
+                <span className="ev-sheet-title">{judgeTrack || "Judging"} Rubric</span>
+                <button className="ev-sheet-close" onClick={() => setRubricOpen(false)}>✕</button>
+              </div>
+              <div className="ev-sheet-body">
+                {criteria.map(c => (
+                  <div key={c.id} className="ev-sheet-criterion">
+                    <div className="ev-sheet-cname">
+                      {c.label}
+                      <span>(1–{c.maxScore} pts)</span>
+                    </div>
+                    {c.hint && <div className="ev-sheet-chint">{c.hint}</div>}
+                  </div>
+                ))}
+                {perfNote && (
+                  <div className="ev-sheet-guide">
+                    <div className="ev-sheet-guide-title">Performance Scoring (not judge-scored)</div>
+                    <div className="ev-sheet-desc">{perfNote.description}</div>
+                  </div>
+                )}
+                <div className="ev-sheet-guide">
+                  <div className="ev-sheet-guide-title">Scoring Guide</div>
+                  <div className="ev-sheet-guide-levels">
+                    {SCORE_GUIDE.map(l => (
+                      <div key={l.range} className="ev-sheet-level">
+                        <span className="ev-sheet-range">{l.range}</span>
+                        <span className="ev-sheet-desc">{l.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

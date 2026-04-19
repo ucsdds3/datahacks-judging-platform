@@ -30,7 +30,4 @@ export const DEFAULT_SCORES = CRITERIA.reduce((acc, criterion) => {
   return acc;
 }, {});
 
-export const MAX_TOTAL_SCORE = CRITERIA.reduce(
-  (sum, criterion) => sum + criterion.maxScore,
-  0
-);
+export const MAX_TOTAL_SCORE = 50;

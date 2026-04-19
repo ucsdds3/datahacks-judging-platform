@@ -541,8 +541,21 @@ export default function Dashboard() {
           return;
         }
 
-        const judgeDoc = await getDoc(doc(db, "judges", user.uid));
-        const judgeData = judgeDoc.data();
+        let judgeData = null;
+
+        // Primary lookup: by Firebase Auth UID
+        const judgeDocByUid = await getDoc(doc(db, "judges", user.uid));
+        if (judgeDocByUid.exists()) {
+          judgeData = judgeDocByUid.data();
+        } else {
+          // Fallback: judge doc was created by assign.js using email slug as ID
+          const emailQuery = query(collection(db, "judges"), where("email", "==", user.email));
+          const emailSnap = await getDocs(emailQuery);
+          if (!emailSnap.empty) {
+            judgeData = emailSnap.docs[0].data();
+            judgeDocId = emailSnap.docs[0].id;
+          }
+        }
 
         if (!judgeData) {
           setAccessError("Your account is signed in, but it is not linked to a judge profile yet.");

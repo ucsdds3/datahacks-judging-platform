@@ -2,7 +2,9 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Evaluate from "./pages/Evaluate";
+import Leaderboard from "./pages/Leaderboard";
 import ProtectedRoute from "./components/ProtectedRoute";
+import LeaderboardRoute from "./components/LeaderboardRoute";
 
 export default function App() {
   return (
@@ -25,6 +27,15 @@ export default function App() {
             <ProtectedRoute>
               <Evaluate />
             </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/leaderboard"
+          element={
+            <LeaderboardRoute>
+              <Leaderboard />
+            </LeaderboardRoute>
           }
         />
       </Routes>

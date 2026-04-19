@@ -396,7 +396,8 @@ export default function Login() {
 
       unsubscribe = onAuthStateChanged(auth, (user) => {
         if (isMounted && user) {
-          navigate("/dashboard", { replace: true });
+          const dest = user.email === "ds3@ucsd.edu" ? "/leaderboard" : "/dashboard";
+          navigate(dest, { replace: true });
         }
       });
     };
@@ -429,8 +430,9 @@ export default function Login() {
     }
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      navigate("/dashboard", { replace: true });
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const dest = cred.user.email === "ds3@ucsd.edu" ? "/leaderboard" : "/dashboard";
+      navigate(dest, { replace: true });
     } catch (err) {
       console.error("Auth error:", err);
       let message = "Sign-in failed. Please try again.";
