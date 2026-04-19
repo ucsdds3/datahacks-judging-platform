@@ -41,7 +41,26 @@ const TRACK_MAP = {
 };
 
 const projectRows = parseCSV("src/assets/Final_project_info - Sheet1.csv");
-const judgeRows   = parseCSV("src/assets/judge_logins.csv");
+
+// ── PARSE CHECKED-IN JUDGES ───────────────────────────────────
+// CSV columns: Tracks, Name, Checked-In, Email, Username, (empty), Password
+const judgeLines = readFileSync("src/assets/password_judges - Checked-In.csv", "utf8")
+  .replace(/\r/g, "")
+  .trim()
+  .split("\n")
+  .slice(1);
+
+const judgeRows = judgeLines
+  .map(line => {
+    const cols = line.split(",");
+    return {
+      track:     (cols[0] ?? "").trim(),
+      name:      (cols[1] ?? "").trim(),
+      checkedIn: (cols[2] ?? "").trim(),
+      username:  (cols[4] ?? "").trim(),
+    };
+  })
+  .filter(j => j.checkedIn === "TRUE" && j.username);
 
 // ── BUILD PROJECTS ────────────────────────────────────────────
 const projects = projectRows.map(r => ({
@@ -56,10 +75,10 @@ const projects = projectRows.map(r => ({
 
 // ── BUILD JUDGES ──────────────────────────────────────────────
 const judges = judgeRows.map(r => ({
-  id: r["Username"],
-  name: r["Name"],
-  email: `${r["Username"].toLowerCase()}@datahacks2026.ucsd`,
-  track: r["Track"],
+  id: r.username,
+  name: r.name,
+  email: `${r.username.toLowerCase()}@datahacks2026.ucsd`,
+  track: r.track,
   assignedProjects: [],
 }));
 

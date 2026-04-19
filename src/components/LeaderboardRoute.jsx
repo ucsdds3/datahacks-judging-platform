@@ -3,7 +3,7 @@ import { auth } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { Navigate } from "react-router-dom";
 
-const ALLOWED_EMAIL = "ds3@ucsd.edu";
+const ALLOWED_EMAIL = "ds3@datahacks2026.ucsd";
 
 export default function LeaderboardRoute({ children }) {
   const [user, setUser] = useState(undefined);

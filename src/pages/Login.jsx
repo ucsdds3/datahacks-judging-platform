@@ -396,7 +396,7 @@ export default function Login() {
 
       unsubscribe = onAuthStateChanged(auth, (user) => {
         if (isMounted && user) {
-          const dest = user.email === "ds3@ucsd.edu" ? "/leaderboard" : "/dashboard";
+          const dest = user.email === "ds3@datahacks2026.ucsd" ? "/leaderboard" : "/dashboard";
           navigate(dest, { replace: true });
         }
       });
@@ -427,7 +427,7 @@ export default function Login() {
       const rawUsername = username.trim().toLowerCase().split("@")[0];
       const email = `${rawUsername}@datahacks2026.ucsd`;
       const cred = await signInWithEmailAndPassword(auth, email, `DH${password}`);
-      const dest = cred.user.email === "ds3@ucsd.edu" ? "/leaderboard" : "/dashboard";
+      const dest = cred.user.email === "ds3@datahacks2026.ucsd" ? "/leaderboard" : "/dashboard";
       navigate(dest, { replace: true });
     } catch (err) {
       console.error("Auth error:", err);

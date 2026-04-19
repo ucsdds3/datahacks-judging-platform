@@ -26,21 +26,36 @@ do {
 } while (pageToken);
 console.log(`✅ Cleared ${deleted} accounts\n`);
 
-// ── STEP 2: CREATE JUDGE ACCOUNTS ────────────────────────────
-const raw = readFileSync("src/assets/judge_logins.csv", "utf8").trim().split("\n");
-const judges = raw.slice(1).map(line => {
-  const cols = [...line.matchAll(/"([^"]*)"/g)].map(m => m[1]);
-  return { name: cols[0], track: cols[1], username: cols[2], pin: cols[3] };
-});
+// ── STEP 2: CREATE CHECKED-IN JUDGE ACCOUNTS ─────────────────
+// CSV columns: Tracks, Name, Checked-In, Email, Username, (empty), Password
+const lines = readFileSync("src/assets/password_judges - Checked-In.csv", "utf8")
+  .replace(/\r/g, "")
+  .trim()
+  .split("\n");
 
-console.log(`Creating ${judges.length} judge accounts...`);
+const judges = lines.slice(1)
+  .map(line => {
+    const cols = line.split(",");
+    return {
+      name:      (cols[1] ?? "").trim(),
+      checkedIn: (cols[2] ?? "").trim(),
+      username:  (cols[4] ?? "").trim(),
+      pin:       (cols[6] ?? "").trim(),
+    };
+  })
+  .filter(j => j.checkedIn === "TRUE" && j.username && j.pin);
+
+console.log(`Creating ${judges.length} checked-in judge accounts...`);
 let created = 0, failed = 0;
 for (const j of judges) {
   const email = `${j.username.toLowerCase()}@datahacks2026.ucsd`;
+  // Pad PIN to 4 digits so DH+PIN is always ≥ 6 chars (Firebase minimum)
+  const paddedPin = j.pin.padStart(4, "0");
+  const password = `DH${paddedPin}`;
   try {
-    await auth.createUser({ email, password: `DH${j.pin}`, displayName: j.name });
+    await auth.createUser({ email, password, displayName: j.name });
     created++;
-    console.log(`  created: ${j.name}`);
+    console.log(`  created: ${j.name} (${j.username})`);
   } catch (err) {
     failed++;
     console.error(`  FAILED:  ${j.name} — ${err.message}`);
