@@ -378,7 +378,7 @@ const styles = `
 
 export default function Login() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -417,20 +417,15 @@ export default function Login() {
     setLoading(true);
     setError("");
 
-    if (!email || !password) {
+    if (!username || !password) {
       setError("Please fill in all fields.");
       setLoading(false);
       return;
     }
 
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
-      setLoading(false);
-      return;
-    }
-
     try {
-      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const email = `${username.trim()}@datahacks2026.ucsd`;
+      const cred = await signInWithEmailAndPassword(auth, email, `DH${password}`);
       const dest = cred.user.email === "ds3@ucsd.edu" ? "/leaderboard" : "/dashboard";
       navigate(dest, { replace: true });
     } catch (err) {
@@ -438,11 +433,9 @@ export default function Login() {
       let message = "Sign-in failed. Please try again.";
 
       if (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential") {
-        message = "No judge account was found for that email/password combination.";
+        message = "No judge account found for that username/password.";
       } else if (err.code === "auth/wrong-password") {
         message = "Incorrect password. Please try again.";
-      } else if (err.code === "auth/invalid-email") {
-        message = "Invalid email address.";
       } else if (err.code === "auth/too-many-requests") {
         message = "Too many attempts. Please wait a moment and try again.";
       }
@@ -484,14 +477,14 @@ export default function Login() {
             </p>
           </div>
 
-          <p className="login-footer-note">Secure, email-based authentication.</p>
+          <p className="login-footer-note">Secure, username-based authentication.</p>
         </div>
 
         {/* ── Right Panel ── */}
         <div className="login-right">
           <div className="login-card">
             <h2 className="login-card-title">Welcome back</h2>
-            <p className="login-card-sub">Sign in with your judge email and password.</p>
+            <p className="login-card-sub">Sign in with your judge username and PIN.</p>
 
             <div className="login-stats">
               <div className="login-stat">
@@ -516,26 +509,28 @@ export default function Login() {
 
             <form onSubmit={handleSubmit}>
               <div className="login-form-group">
-                <label className="login-label">Email</label>
+                <label className="login-label">Username</label>
                 <input
-                  type="email"
+                  type="text"
                   className="login-input"
-                  placeholder="your@email.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="FullNameNoSpaces"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   disabled={loading}
+                  autoComplete="username"
                 />
               </div>
 
               <div className="login-form-group">
-                <label className="login-label">Password</label>
+                <label className="login-label">PIN</label>
                 <input
                   type="password"
                   className="login-input"
-                  placeholder="••••••••"
+                  placeholder="••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
+                  autoComplete="current-password"
                 />
               </div>
 
@@ -558,9 +553,9 @@ export default function Login() {
             {error && <div className="login-error">{error}</div>}
 
             <p className="login-hint">
-              Use the email/password provided for judge access.
+              Use the username and PIN provided by your event organizer.
               <br />
-              Contact your event organizer if you have trouble signing in.
+              Contact them if you have trouble signing in.
             </p>
           </div>
         </div>

@@ -8,6 +8,7 @@ const TRACK_ALIASES = {
   "Cloud":                             "Cloud",
   "Hardware & IoT":                    "Hardware & IoT",
   "Mechanical Design & Biotechnology": "Mechanical Design & Biotechnology",
+  "Entrepreneurship & Product":        "Entrepreneurship & Product",
   "Economics":                         "Economics",
 };
 

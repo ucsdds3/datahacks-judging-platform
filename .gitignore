@@ -31,3 +31,4 @@ seed.js
 src/assets/*.csv
 src/assets/*.ipynb
 src/assets/rubrics.json
+src/assets/serviceAccount.json
