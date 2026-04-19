@@ -673,6 +673,7 @@ export default function Evaluate() {
     const payload = {
       judgeId: user.uid,
       projectId,
+      track: judgeTrack,
       scores,
       comment,
       timestamp: new Date()

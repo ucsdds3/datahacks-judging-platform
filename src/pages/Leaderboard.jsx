@@ -248,11 +248,13 @@ export default function Leaderboard() {
 
       const trackBuckets = {};
       for (const ev of evalDocs) {
-        const { judgeId, projectId, scores } = ev;
+        const { judgeId, projectId, scores, track: evTrack } = ev;
         const project = projectMap[projectId];
         if (!project || !scores) continue;
         const total = Object.values(scores).reduce((s, v) => s + (v ?? 0), 0);
-        for (const track of (judgeTrackMap[judgeId] || [])) {
+        // Prefer track stored on the evaluation; fall back to judge doc lookup
+        const tracks = evTrack ? [evTrack] : (judgeTrackMap[judgeId] || []);
+        for (const track of tracks) {
           if (!trackBuckets[track]) trackBuckets[track] = {};
           if (!trackBuckets[track][projectId]) trackBuckets[track][projectId] = { total: 0, count: 0 };
           trackBuckets[track][projectId].total += total;
