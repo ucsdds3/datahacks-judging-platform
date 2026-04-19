@@ -424,7 +424,8 @@ export default function Login() {
     }
 
     try {
-      const email = `${username.trim().toLowerCase()}@datahacks2026.ucsd`;
+      const rawUsername = username.trim().toLowerCase().split("@")[0];
+      const email = `${rawUsername}@datahacks2026.ucsd`;
       const cred = await signInWithEmailAndPassword(auth, email, `DH${password}`);
       const dest = cred.user.email === "ds3@ucsd.edu" ? "/leaderboard" : "/dashboard";
       navigate(dest, { replace: true });
@@ -484,7 +485,7 @@ export default function Login() {
         <div className="login-right">
           <div className="login-card">
             <h2 className="login-card-title">Welcome back</h2>
-            <p className="login-card-sub">Sign in with your judge username and PIN.</p>
+            <p className="login-card-sub">Enter your name (no spaces) and 4-digit PIN.</p>
 
             <div className="login-stats">
               <div className="login-stat">
@@ -513,7 +514,7 @@ export default function Login() {
                 <input
                   type="text"
                   className="login-input"
-                  placeholder="FullNameNoSpaces"
+                  placeholder="e.g. ChandraKanth"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   disabled={loading}
