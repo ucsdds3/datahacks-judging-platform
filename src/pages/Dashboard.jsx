@@ -578,6 +578,7 @@ export default function Dashboard() {
           projectDocs
             .filter((d) => d.exists())
             .map((d) => ({ id: d.id, ...d.data() }))
+            .sort((a, b) => (a.tableNumber ?? Infinity) - (b.tableNumber ?? Infinity))
         );
 
         const q = query(
