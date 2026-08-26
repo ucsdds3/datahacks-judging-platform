@@ -278,17 +278,33 @@ produced these ids is the bug.
 **Nothing has been deployed to Firebase or Databricks. Production is untouched:
 judges 210, projects 372, evaluations 262, checkins 0, runs 0.**
 
-### Known data problems awaiting a human decision
+### Identity migration — DONE (Aug 2026)
+
+`judges` is now keyed by Firebase Auth UID, matching `evaluations.judgeId`.
+
+| | Before | After |
+|---|---|---|
+| judge docs | 211 | **65** |
+| keyed by UID | 0 | **65** |
+| quarantined in `judges_archive` | — | 146 |
+| eval judgeIds that join to a judge | 0% | **94%** |
+
+The remaining 6% are the four dry-run testers whose Auth accounts were deleted.
+`judges_archive` is not listed in `firestore.rules`, so the default-deny rule
+blocks all client access; admin SDK reads still work. Nothing was destroyed.
+
+`docs/judge-id-map.csv` maps every name to its UID.
+
+Synthetic projects were also archived: **372 -> 166** (206 moved to
+`projects_archive`, 6 kept because they carry real evaluations).
+
+### Known data problems still open
 
 | Problem | Count |
 |---|---|
-| Judge docs that resolve to an Auth UID | 64 of 210 |
-| Real judges with assignments but **no login** | 42 |
-| Stale-generation judge docs (`@judge.datahacks`) | 103 |
-| Judges with no email at all (cannot be looked up) | 6 |
+| Real judges with assignments but **no login** | 42 (decided: leave) |
+| Judges with no email at all | 6 |
 | Junk emails (`Puligundla`, `?`) | 2 |
-| Docs that are the same record under an older ID scheme | 116 |
-| Synthetic projects mixed into production | 212 of 372 |
 | Orphaned evaluations (Auth account deleted) | 8 |
 
 `Shreya Yembarwar` (roster) vs `Shreyas Yembarwar` (credentials) is a
