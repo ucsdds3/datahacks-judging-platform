@@ -285,11 +285,12 @@ export default function Leaderboard() {
         result[track] = entries;
       }
 
-      setTrackData((prev) => {
-        const firstTrack = TRACK_ORDER.find((t) => result[t]);
-        setActiveTrack((cur) => cur ?? firstTrack ?? Object.keys(result)[0] ?? null);
-        return result;
-      });
+      // Set both pieces of state side by side. Calling setActiveTrack from
+      // inside the setTrackData updater made the updater impure, so it fired
+      // twice under StrictMode.
+      const firstTrack = TRACK_ORDER.find((t) => result[t]);
+      setTrackData(result);
+      setActiveTrack((cur) => cur ?? firstTrack ?? Object.keys(result)[0] ?? null);
       setLoading(false);
     };
 

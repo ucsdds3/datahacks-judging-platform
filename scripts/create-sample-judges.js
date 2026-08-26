@@ -1,16 +1,15 @@
-import { initializeApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
-import { getFirestore, doc, setDoc } from "firebase/firestore";
+/**
+ * create-sample-judges.js — seed a handful of demo projects + judge accounts.
+ *
+ * Usage: node scripts/create-sample-judges.js [--commit] [--yes]
+ *
+ * DRY RUN BY DEFAULT — pass --commit to actually write.
+ */
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCGu1nmbD7arFk6E7j4TGZRSb5mau1Uv-A",
-  authDomain: "dh-judge-platform.firebaseapp.com",
-  projectId: "dh-judge-platform",
-};
+import { auth, db } from "./lib/admin.js";
+import { ChangePlan, gate, parseArgs } from "./lib/cli.js";
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+const args = parseArgs();
 
 // ── Projects to seed (from synthetic CSV) ───────────────────────────────────
 const projects = [
@@ -67,10 +66,34 @@ const judges = [
   },
 ];
 
+// ── Plan ─────────────────────────────────────────────────────────────────────
+const plan = new ChangePlan("create sample judges + demo projects");
+
+const existingProjects = new Set((await db.collection("projects").get()).docs.map((d) => d.id));
+for (const { id, ...data } of projects) {
+  plan[existingProjects.has(id) ? "update" : "create"](`projects/${id}`, `— ${data.name}`);
+}
+
+const existingUids = new Map();
+for (const judge of judges) {
+  try {
+    const u = await auth.getUserByEmail(judge.email);
+    existingUids.set(judge.email, u.uid);
+    const snap = await db.collection("judges").doc(u.uid).get();
+    plan[snap.exists ? "update" : "create"](`judges/${u.uid}`, `— ${judge.name}`);
+  } catch (err) {
+    if (err.code !== "auth/user-not-found") throw err;
+    plan.create(`auth/${judge.email}`);
+    plan.create(`judges/<new uid>`, `— ${judge.name} (${judge.assignedProjects.length} projects)`);
+  }
+}
+
+if (!(await gate(args, plan))) process.exit(0);
+
 // ── Upload projects ──────────────────────────────────────────────────────────
 console.log("Uploading projects…");
 for (const { id, ...data } of projects) {
-  await setDoc(doc(db, "projects", id), data);
+  await db.collection("projects").doc(id).set(data);
   console.log(`  ✓ ${data.name} (table ${data.tableNumber})`);
 }
 
@@ -78,21 +101,18 @@ for (const { id, ...data } of projects) {
 console.log("\nCreating judge accounts…");
 for (const judge of judges) {
   const { email, password, assignedProjects, ...profile } = judge;
-  try {
-    const cred = await createUserWithEmailAndPassword(auth, email, password);
-    await setDoc(doc(db, "judges", cred.user.uid), {
-      ...profile,
-      email,
-      assignedProjects,
-    });
-    console.log(`  ✓ ${judge.name} (${email}) → ${assignedProjects.length} projects`);
-  } catch (err) {
-    if (err.code === "auth/email-already-in-use") {
-      console.log(`  · ${judge.name} already exists, skipping Auth creation`);
-    } else {
-      throw err;
-    }
+  let uid = existingUids.get(email);
+  if (uid) {
+    console.log(`  · ${judge.name} already exists, skipping Auth creation`);
+  } else {
+    uid = (await auth.createUser({ email, password, displayName: judge.name })).uid;
   }
+  await db.collection("judges").doc(uid).set({
+    ...profile,
+    email,
+    assignedProjects,
+  });
+  console.log(`  ✓ ${judge.name} (${email}) → ${assignedProjects.length} projects`);
 }
 
 console.log("\nDone ✅");

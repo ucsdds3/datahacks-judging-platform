@@ -1,20 +1,17 @@
 /**
  * create-judge-accounts.js
  * Creates Firebase Auth accounts for all judges in judge_logins.csv
- * Usage: node scripts/create-judge-accounts.js
+ *
+ * Usage: node scripts/create-judge-accounts.js [--commit] [--yes]
+ *
+ * DRY RUN BY DEFAULT — pass --commit to actually create accounts.
  */
 
-import { initializeApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { readFileSync } from "fs";
+import { auth } from "./lib/admin.js";
+import { ChangePlan, gate, parseArgs } from "./lib/cli.js";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCGu1nmbD7arFk6E7j4TGZRSb5mau1Uv-A",
-  authDomain: "dh-judge-platform.firebaseapp.com",
-  projectId: "dh-judge-platform",
-};
-
-const auth = getAuth(initializeApp(firebaseConfig));
+const args = parseArgs();
 
 function parseCSV(text) {
   const lines = text.split(/\r?\n/);
@@ -39,27 +36,55 @@ function parseCSV(text) {
 }
 
 const judges = parseCSV(readFileSync("src/assets/judge_logins.csv", "utf8"));
-console.log(`Creating ${judges.length} accounts…\n`);
+console.log(`Read ${judges.length} rows from judge_logins.csv\n`);
 
-let created = 0, skipped = 0, failed = 0;
+// This script expects Email + Password columns. The CSV that currently ships in
+// src/assets has Name,Track,Username,Password instead — with a 4-digit PIN that
+// is below Firebase's 6-character password minimum. In that shape every row
+// silently failed here. update-credentials.js is the script that understands the
+// username/PIN format (email = <username>@datahacks2026.ucsd, password = DH<pin>).
+if (judges.length && !("Email" in judges[0])) {
+  console.error(
+    `[create-judge-accounts] judge_logins.csv has no "Email" column ` +
+      `(found: ${Object.keys(judges[0]).join(", ")}).\n` +
+      `  This script cannot create accounts from that shape.\n` +
+      `  Use update-credentials.js for the username/PIN CSV format.\n`
+  );
+  process.exit(1);
+}
+
+// ── Plan: which of these already exist in Auth? ──────────────────────────────
+const plan = new ChangePlan("create judge auth accounts");
+const toCreate = [];
+let alreadyExist = 0;
 
 for (const j of judges) {
+  if (!j.Email) continue;
   try {
-    await createUserWithEmailAndPassword(auth, j.Email, j.Password);
-    await signOut(auth);
+    await auth.getUserByEmail(j.Email);
+    alreadyExist++;
+  } catch (err) {
+    if (err.code !== "auth/user-not-found") throw err;
+    plan.create(`auth/${j.Email}`);
+    toCreate.push(j);
+  }
+}
+console.log(`  ${alreadyExist} accounts already exist and will be skipped.`);
+
+if (!(await gate(args, plan, { target: "production Firebase Auth" }))) process.exit(0);
+
+let created = 0, failed = 0;
+for (const j of toCreate) {
+  try {
+    await auth.createUser({ email: j.Email, password: j.Password });
     created++;
     process.stdout.write(".");
   } catch (err) {
-    if (err.code === "auth/email-already-in-use") {
-      skipped++;
-      process.stdout.write("s");
-    } else {
-      failed++;
-      console.error(`\n  ✗ ${j.Email}: ${err.message}`);
-    }
+    failed++;
+    console.error(`\n  ✗ ${j.Email}: ${err.message}`);
   }
 }
 
 console.log(`\n\nDone ✅`);
-console.log(`  ${created} created | ${skipped} already existed | ${failed} failed`);
+console.log(`  ${created} created | ${alreadyExist} already existed | ${failed} failed`);
 process.exit(0);

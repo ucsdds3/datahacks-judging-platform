@@ -1,0 +1,159 @@
+rules_version = '2';
+
+// DataHacks judging platform — Firestore security rules
+//
+// Model:
+//   - Seeding/migration runs through firebase-admin, which BYPASSES these rules
+//     entirely. Nothing here needs to accommodate the seed scripts.
+//   - Judges sign in with email/password and may only ever write their own
+//     evaluations.
+//   - Organizers (custom claim `admin`, or the leaderboard account) read everything.
+//
+// Deploy:  firebase deploy --only firestore:rules
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOrganizer() {
+      return signedIn() && (
+        request.auth.token.admin == true ||
+        request.auth.token.email == 'ds3@datahacks2026.ucsd'
+      );
+    }
+
+    // The judge doc that belongs to the caller. Doc IDs are currently usernames
+    // (e.g. "AarushiBajaj") rather than Auth UIDs, so we accept either the UID
+    // path or an email match. Once the identity migration rekeys judges by UID,
+    // the email branch can be dropped.
+    function ownJudgeDoc(judgeId) {
+      return signedIn() && (
+        judgeId == request.auth.uid ||
+        resource.data.email == request.auth.token.email
+      );
+    }
+
+    function isOwnEvaluation() {
+      return signedIn() && resource != null && resource.data.judgeId == request.auth.uid;
+    }
+
+    // New evaluations are keyed `{uid}_{projectId}`. A judge opening a project
+    // they have not scored yet does a get() on a document that does not exist,
+    // where `resource` is null and any resource.data check fails. Matching on
+    // the id keeps that first read working without exposing anyone else's row.
+    function ownsEvaluationId(evaluationId) {
+      return signedIn() && evaluationId.matches('^' + request.auth.uid + '_.*');
+    }
+
+    // Scores must be a map of integers in [0, 10]. Guards against a client
+    // writing strings, nulls, or out-of-range values into the rankings.
+    function scoresAreValid(scores) {
+      return scores is map
+        && scores.keys().size() >= 1
+        && scores.keys().size() <= 12
+        && scores.values().hasOnly([0,1,2,3,4,5,6,7,8,9,10]);
+    }
+
+    function evaluationShapeIsValid(data) {
+      return data.judgeId is string
+        && data.projectId is string
+        && data.keys().hasOnly(['judgeId','projectId','track','scores','comment','timestamp'])
+        && scoresAreValid(data.scores)
+        && (!('comment' in data.keys()) || (data.comment is string && data.comment.size() <= 5000))
+        && (!('track' in data.keys()) || data.track is string || data.track == null);
+    }
+
+    // ── judges ───────────────────────────────────────────────────────────────
+    // A judge may read only their own profile. The Dashboard's
+    // where("email","==",currentUserEmail) query satisfies this rule, so the
+    // existing email-fallback lookup keeps working.
+    // Writes are admin-SDK only.
+
+    match /judges/{judgeId} {
+      allow get, list: if isOrganizer() || ownJudgeDoc(judgeId);
+      allow write: if false;
+    }
+
+    // ── projects ─────────────────────────────────────────────────────────────
+    // Any signed-in judge may read projects. Restricting to assigned-only would
+    // require a get() on the judge doc for every project read — expensive, and
+    // it breaks the moment assignments change mid-event. Project metadata is not
+    // sensitive; the scores are what need protecting.
+    // Writes are admin-SDK only.
+
+    match /projects/{projectId} {
+      allow get, list: if signedIn();
+      allow write: if false;
+    }
+
+    // ── evaluations ──────────────────────────────────────────────────────────
+    // The core protection. A judge may read and write ONLY rows carrying their
+    // own UID. Deletes are denied outright — scores are corrected by updating,
+    // never by removing, so the audit trail survives.
+
+    match /evaluations/{evaluationId} {
+      allow get: if isOrganizer() || ownsEvaluationId(evaluationId) || isOwnEvaluation();
+      allow list: if isOrganizer() || isOwnEvaluation();
+
+      allow create: if signedIn()
+        && request.resource.data.judgeId == request.auth.uid
+        && evaluationShapeIsValid(request.resource.data);
+
+      allow update: if signedIn()
+        && resource.data.judgeId == request.auth.uid
+        && request.resource.data.judgeId == request.auth.uid
+        && request.resource.data.projectId == resource.data.projectId
+        && evaluationShapeIsValid(request.resource.data);
+
+      allow delete: if false;
+    }
+
+    // ── checkins ─────────────────────────────────────────────────────────────
+    // Written by the organizer console as judges arrive. Doc id is the judge id.
+    // Organizers manage them; a judge may read only their own row.
+    //
+    // `floater` is frozen at write time rather than derived on read, so editing
+    // the cutoff later cannot silently reclassify judges who already arrived.
+
+    match /checkins/{judgeId} {
+      allow get: if isOrganizer() || judgeId == request.auth.uid;
+      allow list: if isOrganizer();
+
+      allow create, update: if isOrganizer()
+        && request.resource.data.checkedIn is bool
+        && request.resource.data.keys().hasOnly([
+             'judgeId', 'name', 'email', 'track',
+             'checkedIn', 'checkedInAt', 'floater', 'cutoffAt', 'checkedInBy'
+           ])
+        && (!('judgeId' in request.resource.data.keys())
+             || request.resource.data.judgeId == judgeId)
+        && (!('floater' in request.resource.data.keys())
+             || request.resource.data.floater is bool);
+
+      allow delete: if isOrganizer();
+    }
+
+    // ── runs ─────────────────────────────────────────────────────────────────
+    // Assignment run reports written by the Python solver through the admin SDK,
+    // which bypasses these rules. Read-only to every client -- including
+    // organizers -- so a browser can never fabricate a passing connectivity
+    // result.
+
+    match /runs/{runId} {
+      allow get, list: if isOrganizer();
+      allow write: if false;
+    }
+
+    // ── Everything else ──────────────────────────────────────────────────────
+    // Default deny. New collections must opt in explicitly above.
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

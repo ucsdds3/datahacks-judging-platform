@@ -2,7 +2,9 @@
  * assign.js — DataHacks judge assignment pipeline
  *
  * Usage:
- *   node scripts/assign.js <judges_csv_path> <submissions_csv_path>
+ *   node scripts/assign.js <judges_csv_path> <submissions_csv_path> [--commit] [--yes]
+ *
+ * DRY RUN BY DEFAULT — pass --commit to actually write.
  *
  * Example:
  *   node scripts/assign.js \
@@ -19,16 +21,9 @@
  * Dashboard falls back to an email query so judges are found when they log in.
  */
 
-import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc } from "firebase/firestore";
 import { readFileSync } from "fs";
-
-// ── Firebase config (same project as seed.js) ──────────────────────────────
-const firebaseConfig = {
-  apiKey: "AIzaSyCGu1nmbD7arFk6E7j4TGZRSb5mau1Uv-A",
-  authDomain: "dh-judge-platform.firebaseapp.com",
-  projectId: "dh-judge-platform",
-};
+import { db } from "./lib/admin.js";
+import { ChangePlan, gate, parseArgs } from "./lib/cli.js";
 
 // ── Tunable knobs ───────────────────────────────────────────────────────────
 const JUDGES_PER_PROJECT = 3; // target number of judges per project
@@ -191,9 +186,10 @@ function assignJudges(judges, projects) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
-  const [,, judgesPath, submissionsPath] = process.argv;
+  const args = parseArgs();
+  const [judgesPath, submissionsPath] = args.positionals;
   if (!judgesPath || !submissionsPath) {
-    console.error("Usage: node scripts/assign.js <judges_csv> <submissions_csv>");
+    console.error("Usage: node scripts/assign.js <judges_csv> <submissions_csv> [--commit] [--yes]");
     process.exit(1);
   }
 
@@ -205,13 +201,31 @@ async function main() {
   console.log("\nAssigning by track…");
   const { judgeProjects, projectJudges } = assignJudges(judges, projects);
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  // ── Plan ───────────────────────────────────────────────────────────────────
+  const plan = new ChangePlan("assign");
+  const existingProjects = new Set((await db.collection("projects").get()).docs.map((d) => d.id));
+  const existingJudges = new Set((await db.collection("judges").get()).docs.map((d) => d.id));
+
+  for (const p of projects) {
+    plan[existingProjects.has(p.id) ? "update" : "create"](
+      `projects/${p.id}`,
+      `— ${p.name} (${(projectJudges[p.id] || []).length} judges)`
+    );
+  }
+  for (const j of judges) {
+    const jid = emailToId(j.email);
+    plan[existingJudges.has(jid) ? "update" : "create"](
+      `judges/${jid}`,
+      `— ${j.name} (${(judgeProjects[jid]?.size || 0)} projects)`
+    );
+  }
+
+  if (!(await gate(args, plan))) return;
 
   console.log("\nUploading projects…");
   for (const p of projects) {
     const { id, ...data } = p;
-    await setDoc(doc(db, "projects", id), {
+    await db.collection("projects").doc(id).set({
       ...data,
       assignedJudges: projectJudges[id] || [],
     });
@@ -221,7 +235,7 @@ async function main() {
   console.log("\n\nUploading judges…");
   for (const j of judges) {
     const jid = emailToId(j.email);
-    await setDoc(doc(db, "judges", jid), {
+    await db.collection("judges").doc(jid).set({
       name: j.name,
       email: j.email,
       track: j.track,

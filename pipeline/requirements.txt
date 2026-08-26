@@ -1,0 +1,67 @@
+# Python deps for pipeline/ (the assignment solver + the normalization model).
+#
+# Local:
+#   python3 -m venv .venv && source .venv/bin/activate
+#   pip install -r pipeline/requirements.txt
+#   pytest pipeline/assignment/test_solver.py
+#   pytest pipeline/normalization/test_model.py
+#
+# Databricks: these are all on the standard ML runtime except firebase-admin
+# and pingouin.
+#   %pip install firebase-admin pingouin
+#
+# Python 3.13 is known good. Avoid 3.14 for now -- statsmodels/pingouin wheels
+# are not published for it yet and pip falls back to a slow source build.
+#
+# --- assignment solver ---
+# Only networkx is load-bearing for the solver itself. pandas is for the
+# optional DataFrame helpers, pytest for the tests, firebase-admin only for
+# replay_2026.py (which reads the live 2026 data).
+#
+# --- normalization model ---
+# statsmodels provides MixedLM, which fits the crossed random-effects model
+# score ~ 1 + (1|judge) + (1|project). numpy/scipy back it and supply the
+# correlation stats used in the simulation sweep. networkx is reused for the
+# judge-project connectivity graph in identifiability.py. pingouin is OPTIONAL:
+# it is only used for the ICC / inter-rater reliability block in report_2026.py,
+# which is not computable on the 2026 data anyway (too few double-scored
+# projects) -- drop it if you want a lighter install.
+#
+# --- databricks (pipeline/databricks) ---
+# Nothing new. The client talks to the SQL warehouse over the REST SQL
+# Statement Execution API using `requests`, which firebase-admin already pulls
+# in; results come back as pandas DataFrames.
+#
+# Deliberately NOT used:
+#   * pyspark / databricks-connect -- Databricks Free Edition is serverless
+#     only. There are zero classic clusters to attach a Spark session to, so
+#     `spark.read...` has nothing to run on. The dataset is ~372 projects and
+#     ~262 evaluations; pandas is the right size of tool.
+#   * databricks-sql-connector -- would work, but adds a heavy dependency
+#     (thrift + its own arrow stack) with no wheels for Python 3.14, to do what
+#     ~200 lines of `requests` already does here.
+#
+# requests is listed explicitly below rather than relied on transitively, so a
+# lighter firebase-admin release cannot silently break the Databricks client.
+
+# --- etl (pipeline/etl) ---
+# The ingestion pipeline needs NOTHING beyond the standard library for its
+# default path: `python -m pipeline.etl.run` reads CSVs with the csv module and
+# writes CSVs with the csv module, so it runs on a bare Python 3.9+. Two
+# optional extras:
+#   * firebase-admin  -- only for `--backend firestore` (already listed above).
+#   * pyarrow         -- only for `--format parquet`; pandas alone is not
+#                        enough. Both are on the Databricks ML runtime.
+# If you skip pyarrow, everything still works; --format parquet raises a
+# message telling you to install it.
+
+networkx>=3.0
+pandas>=1.5
+pytest>=7.0
+firebase-admin>=6.0
+numpy>=1.23
+scipy>=1.9
+statsmodels>=0.14
+pingouin>=0.5
+pyarrow>=12.0
+requests>=2.28
