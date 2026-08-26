@@ -8,10 +8,12 @@ import OrganizerLogin from "./pages/OrganizerLogin";
 import ProtectedRoute from "./components/ProtectedRoute";
 import LeaderboardRoute from "./components/LeaderboardRoute";
 import OrganizerRoute from "./components/OrganizerRoute";
+import WipBanner from "./components/WipBanner";
 
 export default function App() {
   return (
     <BrowserRouter>
+      <WipBanner />
       <Routes>
         <Route path="/" element={<Login />} />
 

@@ -298,6 +298,40 @@ blocks all client access; admin SDK reads still work. Nothing was destroyed.
 Synthetic projects were also archived: **372 -> 166** (206 moved to
 `projects_archive`, 6 kept because they carry real evaluations).
 
+### Next structural change: namespace by event
+
+Everything currently lives in flat top-level collections, so 2026's data sits
+in the same place the fall event will. That is how a judge could be served a
+stale assignment. Planned shape:
+
+```
+events/{eventId}                     name, date, status
+  judges/{uid}  projects/{id}  evaluations/{uid}_{projectId}
+  checkins/{uid}  runs/{runId}
+```
+
+Two things this buys beyond tidiness:
+- an `archived` status makes a past event read-only *structurally*, via rules,
+  rather than relying on every query remembering to filter
+- one pointer document names the live event; the judge app reads only that
+
+Rejected alternative: keeping flat collections and adding an `eventId` field.
+Easier to migrate to, but every query must remember to filter, and forgetting
+once serves stale data — precisely the failure being designed out.
+
+Do this before the fall event. It touches every collection and the rules.
+
+### KNOWN GAP: nothing publishes assignments to judges
+
+`publish_run.py` writes `runs/{runId}` and the Delta tables. It does **not**
+write `judges.assignedProjects`, which is what the judge app actually reads.
+So the solver can report a green connectivity check while judges still see
+stale assignments. Verified: the last run produced 623 assignments while
+`judges.assignedProjects` still held 312 refs from 2026.
+
+Closing this needs dry-run, a printed diff, and a guard against overwriting
+once judging has started.
+
 ### Known data problems still open
 
 | Problem | Count |
