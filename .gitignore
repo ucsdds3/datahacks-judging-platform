@@ -32,3 +32,11 @@ src/assets/*.csv
 src/assets/*.ipynb
 src/assets/rubrics.json
 src/assets/serviceAccount.json
+# Python (pipeline/)
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+# cached extract of live Firestore evaluation data -- do not commit
+pipeline/normalization/_cache_evaluations.csv
+.venv-pipeline/

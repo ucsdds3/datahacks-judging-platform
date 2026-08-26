@@ -452,7 +452,6 @@ const SORT_OPTIONS = ["Submissions", "Avg Score", "Coverage"];
 
 export default function Admin() {
   const [projects, setProjects] = useState([]);
-  const [judges, setJudges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState("Submissions");
 
@@ -465,11 +464,6 @@ export default function Admin() {
       // Load all projects
       const projectSnap = await getDocs(collection(db, "projects"));
       const projectList = projectSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-      // Load all judges
-      const judgeSnap = await getDocs(collection(db, "judges"));
-      const judgeList = judgeSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setJudges(judgeList);
 
       // Aggregate per project
       const aggMap = {};

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { auth, db } from "../firebase";
 import { getCriteriaForTrack, getDefaultScores, getMaxTotal, SCORE_GUIDE, getPerformanceNoteForTrack } from "../config/trackRubrics";
 import {
@@ -9,7 +9,7 @@ import {
   query,
   where,
   getDocs,
-  addDoc,
+  setDoc,
   updateDoc
 } from "firebase/firestore";
 
@@ -503,6 +503,44 @@ const styles = `
     to   { opacity: 1; transform: translateY(0); }
   }
 
+  /* ── Errors ── */
+  .ev-submit-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    background: #FCEEEC;
+    border: 1px solid #E9BDB5;
+    color: #8C3325;
+    border-radius: 10px;
+    padding: 12px 15px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    margin-bottom: 16px;
+  }
+  .ev-submit-error svg { flex-shrink: 0; margin-top: 2px; }
+
+  .ev-error-card {
+    background: #fff;
+    border: 1px solid #E8E4DC;
+    border-radius: 14px;
+    padding: 30px 32px;
+    max-width: 440px;
+    text-align: left;
+  }
+  .ev-error-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 21px;
+    color: #111;
+    margin-bottom: 10px;
+  }
+  .ev-error-body {
+    font-size: 14px;
+    color: #5a534a;
+    line-height: 1.6;
+    font-weight: 300;
+    margin-bottom: 20px;
+  }
+
   /* ── Rubric button ── */
   .ev-rubric-btn {
     display: inline-flex; align-items: center; gap: 6px;
@@ -598,6 +636,8 @@ function ProgressRing({ filled, total }) {
 
 export default function Evaluate() {
   const { projectId } = useParams();
+  const navigate = useNavigate();
+  const redirectTimer = useRef(null);
 
   const [project, setProject] = useState(null);
   const [judgeTrack, setJudgeTrack] = useState(null);
@@ -607,6 +647,8 @@ export default function Evaluate() {
   const [submitting, setSubmitting] = useState(false);
   const [saved, setSaved] = useState(false);
   const [rubricOpen, setRubricOpen] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [submitError, setSubmitError] = useState("");
 
   const criteria = getCriteriaForTrack(judgeTrack);
   const perfNote = getPerformanceNoteForTrack(judgeTrack);
@@ -622,45 +664,96 @@ export default function Evaluate() {
   );
 
   useEffect(() => {
+    let cancelled = false;
+
     const load = async () => {
-      const user = auth.currentUser;
+      try {
+        const user = auth.currentUser;
+        if (!user) {
+          setLoadError("Your session expired. Please sign in again.");
+          return;
+        }
 
-      // Load project
-      const projectDoc = await getDoc(doc(db, "projects", projectId));
-      setProject(projectDoc.data());
+        // Load project
+        const projectDoc = await getDoc(doc(db, "projects", projectId));
+        if (!projectDoc.exists()) {
+          setLoadError(`Project "${projectId}" was not found. Head back and pick it from your list.`);
+          return;
+        }
 
-      // Load judge track (UID first, fallback to email)
-      let track = null;
-      const judgeDoc = await getDoc(doc(db, "judges", user.uid));
-      if (judgeDoc.exists()) {
-        track = judgeDoc.data().track || null;
-      } else {
-        const eq = query(collection(db, "judges"), where("email", "==", user.email));
-        const eSnap = await getDocs(eq);
-        if (!eSnap.empty) track = eSnap.docs[0].data().track || null;
-      }
-      setJudgeTrack(track);
+        // Resolve the judge's track (UID first, then email fallback).
+        // A missing track is a hard error: falling back to a generic rubric
+        // silently scores the project against the wrong criteria, and the
+        // resulting evaluation is dropped from the leaderboard.
+        let track = null;
+        const judgeDoc = await getDoc(doc(db, "judges", user.uid));
+        if (judgeDoc.exists()) {
+          track = judgeDoc.data().track || null;
+        } else {
+          const eq = query(collection(db, "judges"), where("email", "==", user.email));
+          const eSnap = await getDocs(eq);
+          if (!eSnap.empty) track = eSnap.docs[0].data().track || null;
+        }
 
-      // Seed scores from track criteria
-      const trackCriteria = getCriteriaForTrack(track);
-      setScores(getDefaultScores(trackCriteria));
+        if (!track) {
+          setLoadError(
+            "We couldn't determine your judging track, so we can't show you the right rubric. Please find an organizer — scoring now would record the wrong criteria."
+          );
+          return;
+        }
+        if (cancelled) return;
+        setJudgeTrack(track);
+        setProject({ id: projectDoc.id, ...projectDoc.data() });
 
-      // Load existing evaluation
-      const q = query(
-        collection(db, "evaluations"),
-        where("judgeId", "==", user.uid),
-        where("projectId", "==", projectId)
-      );
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        const data = snap.docs[0];
-        setExistingId(data.id);
-        setScores(data.data().scores);
-        setComment(data.data().comment || "");
+        const trackCriteria = getCriteriaForTrack(track);
+        const blankScores = getDefaultScores(trackCriteria);
+        setScores(blankScores);
+
+        // Load an existing evaluation. New writes use a deterministic
+        // `${uid}_${projectId}` id, but 2026 rows still carry random ids, so
+        // check the deterministic path first and fall back to the legacy query.
+        const deterministicId = `${user.uid}_${projectId}`;
+        let found = await getDoc(doc(db, "evaluations", deterministicId));
+
+        if (!found.exists()) {
+          const q = query(
+            collection(db, "evaluations"),
+            where("judgeId", "==", user.uid),
+            where("projectId", "==", projectId)
+          );
+          const snap = await getDocs(q);
+          found = snap.empty ? null : snap.docs[0];
+        }
+
+        if (found && !cancelled) {
+          setExistingId(found.id);
+          // Only carry over scores whose criteria still exist for this track,
+          // so a rubric change can't leave stale keys inflating the total.
+          const saved = found.data().scores || {};
+          setScores({
+            ...blankScores,
+            ...Object.fromEntries(
+              Object.keys(blankScores)
+                .filter((k) => typeof saved[k] === "number")
+                .map((k) => [k, saved[k]])
+            )
+          });
+          setComment(found.data().comment || "");
+        }
+      } catch (err) {
+        console.error("Evaluate load error:", err);
+        if (!cancelled) {
+          setLoadError("We couldn't load this project. Check your connection and try again.");
+        }
       }
     };
+
     load();
+    return () => { cancelled = true; };
   }, [projectId]);
+
+  // Cancel a pending redirect if this page unmounts first.
+  useEffect(() => () => clearTimeout(redirectTimer.current), []);
 
   const handleScore = (field, value) => {
     setScores((prev) => ({ ...prev, [field]: value }));
@@ -669,6 +762,8 @@ export default function Evaluate() {
   const handleSubmit = async () => {
     if (!isComplete || submitting) return;
     setSubmitting(true);
+    setSubmitError("");
+
     const user = auth.currentUser;
     const payload = {
       judgeId: user.uid,
@@ -678,19 +773,53 @@ export default function Evaluate() {
       comment,
       timestamp: new Date()
     };
+
     try {
       if (existingId) {
+        // Legacy random-id row — keep updating it in place.
         await updateDoc(doc(db, "evaluations", existingId), payload);
       } else {
-        const ref = await addDoc(collection(db, "evaluations"), payload);
-        setExistingId(ref.id);
+        // Deterministic id makes the write idempotent: a double-submit, a
+        // second tab, or a retry after a dropped connection all resolve to the
+        // same document instead of creating a duplicate evaluation.
+        const deterministicId = `${user.uid}_${projectId}`;
+        await setDoc(doc(db, "evaluations", deterministicId), payload, { merge: true });
+        setExistingId(deterministicId);
       }
       setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      // Let the judge see the confirmation, then send them back to their list
+      // so they can go straight to the next project.
+      redirectTimer.current = setTimeout(() => navigate("/dashboard"), 900);
+    } catch (err) {
+      console.error("Evaluate submit error:", err);
+      setSubmitError(
+        err?.code === "permission-denied"
+          ? "You don't have permission to score this project. Please find an organizer."
+          : "Your score didn't save. Check your connection and tap Submit again."
+      );
     } finally {
       setSubmitting(false);
     }
   };
+
+  if (loadError) {
+    return (
+      <>
+        <style>{styles}</style>
+        <div className="ev-loading">
+          <div className="ev-loading-inner">
+            <div className="ev-error-card">
+              <div className="ev-error-title">Can't open this project</div>
+              <p className="ev-error-body">{loadError}</p>
+              <button className="ev-back-btn" onClick={() => window.history.back()}>
+                ← Back to my projects
+              </button>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   if (!project) {
     return (
@@ -773,7 +902,8 @@ export default function Evaluate() {
                 </div>
                 <p className="ev-criterion-hint">{c.hint}</p>
                 <div className="ev-scale">
-                  {Array.from({ length: c.maxScore }, (_, i) => i + 1).map((n) => (
+                  {/* 0 is a valid score — the rubric defines a 0–2 band. */}
+                  {Array.from({ length: c.maxScore + 1 }, (_, i) => i).map((n) => (
                     <button
                       key={n}
                       className={`ev-scale-btn${scores[c.id] === n ? " active" : ""}`}
@@ -798,6 +928,17 @@ export default function Evaluate() {
               onChange={(e) => setComment(e.target.value)}
             />
           </div>
+
+          {/* Submit error — a failed write must never be silent */}
+          {submitError && (
+            <div className="ev-submit-error" role="alert">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M8 4.5v4.2M8 11.2v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+              </svg>
+              <span>{submitError}</span>
+            </div>
+          )}
 
           {/* Submit bar */}
           <div className="ev-submit-bar">

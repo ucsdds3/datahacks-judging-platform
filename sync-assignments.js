@@ -1,21 +1,20 @@
+/**
+ * sync-assignments.js — push judge → project assignments from a local JSON file.
+ *
+ * Usage:
+ *   node sync-assignments.js [assignments.local.json] [--commit] [--yes]
+ *
+ * DRY RUN BY DEFAULT — pass --commit to actually write.
+ */
+
 import fs from "node:fs";
 import path from "node:path";
-import { initializeApp } from "firebase/app";
-import { collection, doc, getDocs, getFirestore, setDoc } from "firebase/firestore";
+import { db } from "./scripts/lib/admin.js";
+import { ChangePlan, gate, parseArgs } from "./scripts/lib/cli.js";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCGu1nmbD7arFk6E7j4TGZRSb5mau1Uv-A",
-  authDomain: "dh-judge-platform.firebaseapp.com",
-  projectId: "dh-judge-platform"
-};
+const args = parseArgs();
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-const inputPath = path.resolve(
-  process.cwd(),
-  process.argv[2] || "assignments.local.json"
-);
+const inputPath = path.resolve(process.cwd(), args.positionals[0] || "assignments.local.json");
 
 const fail = (message) => {
   console.error(`\n[assignments] ${message}`);
@@ -70,7 +69,7 @@ for (const judge of judges) {
 }
 
 const syncAssignments = async () => {
-  const projectSnapshot = await getDocs(collection(db, "projects"));
+  const projectSnapshot = await db.collection("projects").get();
   const existingProjectIds = new Set(projectSnapshot.docs.map((project) => project.id));
 
   const unknownProjectIds = [...assignedJudgesByProject.keys()].filter(
@@ -83,11 +82,40 @@ const syncAssignments = async () => {
     );
   }
 
+  // ── Plan ───────────────────────────────────────────────────────────────────
+  const plan = new ChangePlan(`sync assignments from ${path.basename(inputPath)}`);
+
+  const existingJudgeIds = new Set(
+    (await db.collection("judges").get()).docs.map((d) => d.id)
+  );
+
+  for (const judge of judges) {
+    const op = existingJudgeIds.has(judge.id) ? "update" : "create";
+    plan[op](`judges/${judge.id}`, `— ${judge.assignedProjects.length} projects (merge)`);
+  }
+
+  for (const projectId of existingProjectIds) {
+    const next = assignedJudgesByProject.get(projectId) || [];
+    const current = projectSnapshot.docs.find((d) => d.id === projectId)?.data()
+      ?.assignedJudges || [];
+    // Only an update if the value actually changes.
+    const same =
+      current.length === next.length && current.every((v, i) => v === next[i]);
+    if (!same) {
+      plan.update(
+        `projects/${projectId}`,
+        `— assignedJudges ${current.length} → ${next.length}`
+      );
+    }
+  }
+
+  if (!(await gate(args, plan))) return;
+
+  // ── Commit ─────────────────────────────────────────────────────────────────
   console.log(`[assignments] Syncing ${judges.length} judges from ${path.basename(inputPath)}...`);
 
   for (const judge of judges) {
-    await setDoc(
-      doc(db, "judges", judge.id),
+    await db.collection("judges").doc(judge.id).set(
       {
         name: judge.name,
         email: judge.email,
@@ -101,8 +129,7 @@ const syncAssignments = async () => {
   console.log(`[assignments] Updating ${existingProjectIds.size} projects with assigned judges...`);
 
   for (const projectId of existingProjectIds) {
-    await setDoc(
-      doc(db, "projects", projectId),
+    await db.collection("projects").doc(projectId).set(
       {
         assignedJudges: assignedJudgesByProject.get(projectId) || []
       },

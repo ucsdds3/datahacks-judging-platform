@@ -8,18 +8,15 @@
  * 5. Each judge in a team gets all projects in their team's slice
  * 6. Uploads projects + judges to Firestore
  *
- * Usage: node scripts/generate-and-assign.js <judges_csv_path>
+ * Usage: node scripts/generate-and-assign.js <judges_csv_path> [--commit] [--yes]
+ *
+ * DRY RUN BY DEFAULT — pass --commit to actually write. A dry run writes its
+ * generated CSV to *.dryrun.csv so the committed asset is never clobbered.
  */
 
-import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc } from "firebase/firestore";
 import { readFileSync, writeFileSync } from "fs";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyCGu1nmbD7arFk6E7j4TGZRSb5mau1Uv-A",
-  authDomain: "dh-judge-platform.firebaseapp.com",
-  projectId: "dh-judge-platform",
-};
+import { db } from "./lib/admin.js";
+import { ChangePlan, gate, parseArgs } from "./lib/cli.js";
 
 // ── Team structure from judge_dist.csv ──────────────────────────────────────
 // Each entry: how many teams and how many judges per team
@@ -209,9 +206,10 @@ function assignGroups(judges, projects) {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
-  const [,, judgesPath] = process.argv;
+  const args = parseArgs();
+  const judgesPath = args.positionals[0];
   if (!judgesPath) {
-    console.error("Usage: node scripts/generate-and-assign.js <judges_csv_path>");
+    console.error("Usage: node scripts/generate-and-assign.js <judges_csv_path> [--commit] [--yes]");
     process.exit(1);
   }
 
@@ -227,9 +225,6 @@ async function main() {
   console.log("\nForming teams and assigning projects…");
   const { judgeAssignments, projectAssignments } = assignGroups(judges, projects);
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-
   // Save projects to CSV
   const csvHeader = "Project Title,Table Number,What's The First Track You'd Like To Submit To?,What's The Second Track You'd Like To Submit To?,Built With,Submission Url,About The Project";
   const csvRows = projects.map(p =>
@@ -237,21 +232,45 @@ async function main() {
       .map(v => `"${String(v).replace(/"/g, '""')}"`)
       .join(",")
   );
-  const csvPath = "src/assets/synthetic_projects_generated.csv";
+  // On a dry run, never clobber the committed asset — write a preview instead.
+  const csvPath = args.commit
+    ? "src/assets/synthetic_projects_generated.csv"
+    : "src/assets/synthetic_projects_generated.dryrun.csv";
   writeFileSync(csvPath, [csvHeader, ...csvRows].join("\n"), "utf8");
   console.log(`\nSaved CSV → ${csvPath}`);
+
+  // ── Plan ───────────────────────────────────────────────────────────────────
+  const plan = new ChangePlan("generate-and-assign");
+  const existingProjects = new Set((await db.collection("projects").get()).docs.map((d) => d.id));
+  const existingJudges = new Set((await db.collection("judges").get()).docs.map((d) => d.id));
+
+  for (const p of projects) {
+    plan[existingProjects.has(p.id) ? "update" : "create"](
+      `projects/${p.id}`,
+      `— ${p.name} (${(projectAssignments[p.id] || []).length} judges)`
+    );
+  }
+  for (const j of judges) {
+    const jid = emailToId(j["Name"]);
+    plan[existingJudges.has(jid) ? "update" : "create"](
+      `judges/${jid}`,
+      `— ${j["Name"].trim()} (${judgeAssignments[jid]?.size || 0} projects)`
+    );
+  }
+
+  if (!(await gate(args, plan))) return;
 
   console.log("\nUploading projects…");
   for (const p of projects) {
     const { id, ...data } = p;
-    await setDoc(doc(db, "projects", id), { ...data, assignedJudges: projectAssignments[id] || [] });
+    await db.collection("projects").doc(id).set({ ...data, assignedJudges: projectAssignments[id] || [] });
     process.stdout.write(".");
   }
 
   console.log("\n\nUploading judges…");
   for (const j of judges) {
     const jid = emailToId(j["Name"]);
-    await setDoc(doc(db, "judges", jid), {
+    await db.collection("judges").doc(jid).set({
       name: j["Name"].trim(),
       email: j["Email"] || `${jid}@judge.datahacks`,
       track: j["Tracks"].trim(),

@@ -426,7 +426,11 @@ export default function Login() {
     try {
       const rawUsername = username.trim().toLowerCase().split("@")[0];
       const email = `${rawUsername}@datahacks2026.ucsd`;
-      const cred = await signInWithEmailAndPassword(auth, email, `DH${password}`);
+      // Account creation pads the PIN to 4 digits so DH+PIN clears Firebase's
+      // 6-character minimum. Pad identically here or a PIN with a leading zero
+      // can never sign in.
+      const pin = password.trim().padStart(4, "0");
+      const cred = await signInWithEmailAndPassword(auth, email, `DH${pin}`);
       const dest = cred.user.email === "ds3@datahacks2026.ucsd" ? "/leaderboard" : "/dashboard";
       navigate(dest, { replace: true });
     } catch (err) {

@@ -9,13 +9,22 @@ admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 const auth = admin.auth();
 
 // ── STEP 1: DELETE ALL NON-ADMIN USERS ───────────────────────
+// Both organizer accounts must survive. ds3@datahacks2026.ucsd is the one
+// actually in use -- it is what firestore.rules grants organizer access to and
+// what Login.jsx routes to the leaderboard. Preserving only ds3@ucsd.edu (which
+// has never signed in) would delete the working leaderboard account.
+const PRESERVE_EMAILS = new Set([
+  "ds3@datahacks2026.ucsd",
+  "ds3@ucsd.edu",
+]);
+
 console.log("Fetching existing users...");
 let deleted = 0;
 let pageToken;
 do {
   const result = await auth.listUsers(1000, pageToken);
   const toDelete = result.users
-    .filter(u => u.email !== "ds3@ucsd.edu")
+    .filter(u => !PRESERVE_EMAILS.has(u.email))
     .map(u => u.uid);
   if (toDelete.length) {
     await auth.deleteUsers(toDelete);

@@ -3,20 +3,19 @@
  * Wipes projects/judges/evaluations, then re-uploads from saved CSVs.
  *
  * Usage:
- *   node scripts/reset-and-upload.js <judges_csv>
+ *   node scripts/reset-and-upload.js <judges_csv> [--commit] [--yes]
+ *
+ * DRY RUN BY DEFAULT — pass --commit to actually wipe and upload.
+ *
+ * ⚠️  This deletes the `evaluations` collection. Those are the scores judges
+ *     entered during the event and there is no undo. Read the printed summary.
  *
  * Projects are read from src/assets/synthetic_projects_generated.csv
  */
 
-import { initializeApp } from "firebase/app";
-import { getFirestore, collection, getDocs, deleteDoc, doc, setDoc } from "firebase/firestore";
 import { readFileSync } from "fs";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyCGu1nmbD7arFk6E7j4TGZRSb5mau1Uv-A",
-  authDomain: "dh-judge-platform.firebaseapp.com",
-  projectId: "dh-judge-platform",
-};
+import { db } from "./lib/admin.js";
+import { ChangePlan, confirm, parseArgs } from "./lib/cli.js";
 
 const TRACK_TEAMS = {
   "AI/ML":                             [4,4,4,4,4,4,4,4],
@@ -56,10 +55,22 @@ function toSlug(str) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-async function deleteCollection(db, name) {
-  const snap = await getDocs(collection(db, name));
-  await Promise.all(snap.docs.map(d => deleteDoc(doc(db, name, d.id))));
-  console.log(`  deleted ${snap.docs.length} docs from ${name}`);
+async function countCollection(name) {
+  const snap = await db.collection(name).get();
+  return snap.docs.map(d => d.id);
+}
+
+async function deleteCollection(name) {
+  const snap = await db.collection(name).get();
+  // Admin SDK batches cap at 500 writes.
+  let deleted = 0;
+  for (let i = 0; i < snap.docs.length; i += 400) {
+    const batch = db.batch();
+    for (const d of snap.docs.slice(i, i + 400)) batch.delete(d.ref);
+    await batch.commit();
+    deleted += Math.min(400, snap.docs.length - i);
+  }
+  console.log(`  deleted ${deleted} docs from ${name}`);
 }
 
 // ── Assignment ────────────────────────────────────────────────────────────────
@@ -120,22 +131,14 @@ function assignGroups(judges, projects) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-const [,, judgesPath] = process.argv;
+const args = parseArgs();
+const judgesPath = args.positionals[0];
 if (!judgesPath) {
-  console.error("Usage: node scripts/reset-and-upload.js <judges_csv_path>");
+  console.error("Usage: node scripts/reset-and-upload.js <judges_csv_path> [--commit] [--yes]");
   process.exit(1);
 }
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-// 1. Wipe Firestore
-console.log("\nClearing Firestore…");
-await deleteCollection(db, "projects");
-await deleteCollection(db, "judges");
-await deleteCollection(db, "evaluations");
-
-// 2. Load projects from saved CSV
+// 1. Load projects from saved CSV
 console.log("\nLoading projects from synthetic_projects_generated.csv…");
 const projectRows = parseCSV(readFileSync("src/assets/synthetic_projects_generated.csv", "utf8"));
 const projects = projectRows.map(r => ({
@@ -149,29 +152,74 @@ const projects = projectRows.map(r => ({
 }));
 console.log(`  ${projects.length} projects loaded`);
 
-// 3. Load judges from CSV
+// 2. Load judges from CSV
 console.log("\nLoading judges from CSV…");
 const judgeRows = parseCSV(readFileSync(judgesPath, "utf8"))
   .filter(r => r["Name"]?.trim() && r["Tracks"]?.trim() && !/^\d+$/.test(r["Tracks"]));
 console.log(`  ${judgeRows.length} judges loaded`);
 
-// 4. Assign
+// 3. Assign
 console.log("\nForming teams…");
 const { judgeProjects, projectJudges } = assignGroups(judgeRows, projects);
 
-// 5. Upload projects
+// 4. Plan (what the wipe + upload would do)
+const plan = new ChangePlan("reset-and-upload");
+for (const name of ["projects", "judges", "evaluations"]) {
+  const ids = await countCollection(name);
+  for (const id of ids) plan.delete(`${name}/${id}`);
+}
+for (const p of projects) plan.create(`projects/${p.id}`, `— ${p.name}`);
+for (const j of judgeRows) {
+  const slug = toSlug(j["Name"]);
+  plan.create(`judges/${slug}`, `— ${j["Name"].trim()} (${(judgeProjects[slug] || new Set()).size} projects)`);
+}
+
+plan.printSummary();
+
+const evalCount = plan.deletes.filter(d => d.path.startsWith("evaluations/")).length;
+if (evalCount) {
+  console.log(
+    `⚠️  ${evalCount} evaluation rows will be PERMANENTLY DELETED. These are judge-entered scores.\n`
+  );
+}
+
+if (!args.commit) {
+  console.log(
+    `DRY RUN — nothing was written. Re-run with --commit to apply these ${plan.total} changes.\n`
+  );
+  process.exit(0);
+}
+
+if (!args.yes) {
+  const ok = await confirm(
+    `About to DELETE ${plan.deletes.length} docs (including ${evalCount} evaluations) and write ${plan.creates.length} to production Firestore. Continue?`,
+    "delete"
+  );
+  if (!ok) {
+    console.log("Aborted. Nothing was written.\n");
+    process.exit(0);
+  }
+}
+
+// 5. Wipe Firestore
+console.log("\nClearing Firestore…");
+await deleteCollection("projects");
+await deleteCollection("judges");
+await deleteCollection("evaluations");
+
+// 6. Upload projects
 console.log("\nUploading projects…");
 for (const p of projects) {
   const { id, ...data } = p;
-  await setDoc(doc(db, "projects", id), { ...data, assignedJudges: projectJudges[id] || [] });
+  await db.collection("projects").doc(id).set({ ...data, assignedJudges: projectJudges[id] || [] });
   process.stdout.write(".");
 }
 
-// 6. Upload judges
+// 7. Upload judges
 console.log("\n\nUploading judges…");
 for (const j of judgeRows) {
   const slug = toSlug(j["Name"]);
-  await setDoc(doc(db, "judges", slug), {
+  await db.collection("judges").doc(slug).set({
     name: j["Name"].trim(),
     email: j["Email"] || `${slug}@judge.datahacks`,
     track: j["Tracks"].trim(),

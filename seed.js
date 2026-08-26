@@ -1,39 +1,69 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc } from "firebase/firestore";
-import { readFileSync } from "fs";
+/**
+ * seed.js — upload projects + judges from assignments.local.json.
+ *
+ * Usage:
+ *   node seed.js [assignments.local.json] [--commit] [--yes]
+ *
+ * DRY RUN BY DEFAULT — pass --commit to actually write.
+ */
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCGu1nmbD7arFk6E7j4TGZRSb5mau1Uv-A",
-  authDomain: "dh-judge-platform.firebaseapp.com",
-  projectId: "dh-judge-platform",
-};
+import { readFileSync, existsSync } from "fs";
+import path from "path";
+import { db } from "./scripts/lib/admin.js";
+import { ChangePlan, FLAGS_HELP, gate, parseArgs } from "./scripts/lib/cli.js";
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+const args = parseArgs();
+const inputPath = path.resolve(process.cwd(), args.positionals[0] || "assignments.local.json");
 
-const { projects, judges } = JSON.parse(readFileSync("assignments.local.json", "utf8"));
+if (!existsSync(inputPath)) {
+  console.error(`\n[seed] Could not find ${inputPath}${FLAGS_HELP}`);
+  process.exit(1);
+}
 
-const seed = async () => {
-  console.log(`Uploading ${projects.length} projects...`);
-  for (const p of projects) {
-    await setDoc(doc(db, "projects", p.id), {
-      name: p.name,
-      tracks: p.tracks,
-      tableNumber: p.tableNumber,
-    });
-  }
+const { projects, judges } = JSON.parse(readFileSync(inputPath, "utf8"));
 
-  console.log(`Uploading ${judges.length} judges...`);
-  for (const j of judges) {
-    await setDoc(doc(db, "judges", j.id), {
-      name: j.name,
-      email: j.email,
-      track: j.track,
-      assignedProjects: j.assignedProjects,
-    });
-  }
+const projectDocs = projects.map((p) => ({
+  id: p.id,
+  data: { name: p.name, tracks: p.tracks, tableNumber: p.tableNumber },
+}));
 
-  console.log("DONE ✅");
-};
+const judgeDocs = judges.map((j) => ({
+  id: j.id,
+  data: {
+    name: j.name,
+    email: j.email,
+    track: j.track,
+    assignedProjects: j.assignedProjects,
+  },
+}));
 
-seed();
+// ── Plan ─────────────────────────────────────────────────────────────────────
+const plan = new ChangePlan(`seed from ${path.basename(inputPath)}`);
+
+const existingProjects = new Set((await db.collection("projects").get()).docs.map((d) => d.id));
+const existingJudges = new Set((await db.collection("judges").get()).docs.map((d) => d.id));
+
+for (const { id, data } of projectDocs) {
+  const where = existingProjects.has(id) ? "update" : "create";
+  plan[where](`projects/${id}`, `— ${data.name}`);
+}
+for (const { id, data } of judgeDocs) {
+  const where = existingJudges.has(id) ? "update" : "create";
+  plan[where](`judges/${id}`, `— ${data.name} (${(data.assignedProjects || []).length} projects)`);
+}
+
+if (!(await gate(args, plan))) process.exit(0);
+
+// ── Commit ───────────────────────────────────────────────────────────────────
+console.log(`Uploading ${projectDocs.length} projects...`);
+for (const { id, data } of projectDocs) {
+  await db.collection("projects").doc(id).set(data);
+}
+
+console.log(`Uploading ${judgeDocs.length} judges...`);
+for (const { id, data } of judgeDocs) {
+  await db.collection("judges").doc(id).set(data);
+}
+
+console.log("DONE ✅");
+process.exit(0);
